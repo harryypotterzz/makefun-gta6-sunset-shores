@@ -1,41 +1,75 @@
-# Sunset Shores — Make.fun bounty entry (gta6-01)
+# Sunset Shores — Make GTA 6
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/harryypotterzz/makefun-gta6-sunset-shores/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/harryypotterzz/makefun-gta6-sunset-shores/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 An original top-down 2D open-world crime game built by an AI agent for
-[make.fun](https://make.fun/bounty/gta6-01) — where you and your AI agent can
-earn money in bounties like this one. No Rockstar assets, names, or maps:
-everything is original — the fictional city of Palm Bay, its characters,
-vehicles, story, art, and sound.
+[make.fun](https://make.fun/bounty/gta6-01) — where you and your AI agent
+can earn money in bounties like this one. Set in the fictional sun-soaked
+coastal city of Palm Bay, it runs offline in a desktop browser from static
+files, drawn on an HTML5 canvas with plain JavaScript and no libraries.
+
+Walk the streets, steal cars, outrun the police, and take jobs to get paid.
 
 ## The game
 
-**Sunset Shores** — drive and walk a 3200×2400 city, steal cars (E), take
-jobs from Mara, outrun the Palm Bay PD, and climb the wanted ladder (0–5
-stars). Three mission types (Delivery, Getaway, Cash Run), traffic and
-pedestrians, a HUD with minimap, money, save, and WebAudio sound — all
-offline, from static files under `game/`, in plain HTML5 Canvas + vanilla JS.
-No libraries, no network.
+- **A city:** Palm Bay, 3200×2400 pixels of road grid, blocks, buildings,
+  trees and a beach on the east edge — generated from a fixed seed, so it
+  is identical on every load.
+- **On foot and by car:** walk with WASD or the arrow keys, press E to
+  steal a nearby car and drive it, E again to step out.
+- **Traffic and pedestrians:** cars follow the roads and turn at
+  intersections; pedestrians stroll the sidewalks and flee from trouble.
+- **Wanted system and police:** stealing cars and hitting pedestrians
+  raise your wanted level (0–5 stars). Police cruisers spawn and chase
+  you; get caught on foot and you are BUSTED. Lay low and the heat fades.
+- **Missions:** press M (or drive onto the glowing JOB marker) to take a
+  job — Parcel Delivery, Getaway, or Cash Run — each with a timer and a
+  payout. Cash lying on the street pays on pickup.
+- **HUD and minimap:** money, health, wanted stars, mission name and
+  timer, speed, and a live minimap with the player, police and markers.
+- **States and save:** title screen, pause, BUSTED / WASTED screens with
+  restart, and money plus jobs done saved to local storage.
+- **Sound:** engine hum, police sirens, pickup chimes and mission
+  jingles, all synthesised with the Web Audio API. N toggles mute.
 
-- **Play it:** open `game/index.html` in a desktop browser, or run
-  `node serve.ts` (port 8903) and open http://localhost:8903.
-- **Controls:** WASD / Arrows — walk or drive · E — steal / exit car ·
-  M — take a job from Mara · P — pause · Q — mute.
-- **Screenshots:** `screenshots/` (4 screens: start, driving, 3-star police
-  chase, mission).
+## Controls
 
-## The entry
+| Key | Action |
+| --- | --- |
+| WASD / Arrow keys | Walk, or drive (accelerate, brake, steer) |
+| E | Steal a car / leave a car |
+| M | Start a job |
+| P or Esc | Pause / resume |
+| Enter | Start, or restart after BUSTED / WASTED |
+| N | Mute sound |
 
-- **The program:** `main.ts` (Node 22) copies `game/` and `screenshots/`
-  from this repository to `/output` and writes `/output/dossier.json` with
-  the kit's `vendor/makefun-game.ts` dossier builder.
-- **Verification:** `playtest.py` (Playwright, seed=7) plays the game live —
-  title → drive → steal a car → complete a delivery → wanted level 2 with
-  police chase — with zero console errors. `take_shots.py` captures the
-  four screenshots (1280×720, each ≤256 KiB).
-- **Dossier:** `out/dossier.json` — the entry dossier, within the
-  competition gate (game/ ≤48 MiB, dossier ≤1.5 MiB).
+## Run it
 
-Run the hand-in: `mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts`
+```sh
+node serve.ts
+```
+
+Then open http://localhost:8903/game/index.html in a desktop browser.
+
+## Build the entry dossier
+
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+```
+
+This copies `game/` and `screenshots/` into `out/` and writes
+`out/dossier.json`.
+
+## Screenshots and playtest
+
+```sh
+/home/hatch/workspace/makefun/.pwvenv/bin/python take_shots.py
+/home/hatch/workspace/makefun/.pwvenv/bin/python playtest.py
+```
+
+`take_shots.py` captures the four scenes (title, driving, police chase,
+delivery mission) at 1280×720. `playtest.py` drives a full session —
+title, walk, steal, drive, mission, wanted level, police, pause — and
+requires zero console errors.

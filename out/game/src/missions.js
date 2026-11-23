@@ -1,146 +1,168 @@
-// Sunset Shores — missions from Mara, the fixer.
-// One job only: three mission types (delivery, getaway, collect), their
-// objectives, timers, rewards, and the phone-call flow that hands them out.
-import { pick, rangeInt } from './random.js';
+// Missions: three jobs that pay. One runs at a time, started with M
+// or by driving onto the glowing job marker. Each has a target on the
+// map, a timer, and a reward; finishing one pays and frees the slot.
 
-export const MISSION_DEFS = {
-  delivery: {
-    title: 'Hot Delivery',
-    blurb: 'Drive the package to the drop-off before the timer runs out. No scratches, no cops.',
-  },
-  getaway: {
-    title: 'Getaway Driver',
-    blurb: 'Pick up the crew at the marker, then shake the heat and reach the Safehouse.',
-  },
-  collect: {
-    title: 'Cash Run',
-    blurb: 'Mara stashed cash bags around Palm Bay. Grab them all — the cops are watching.',
-  },
+import { CONFIG } from './config.js';
+import { distance } from './entities.js';
+import { randomRoadPoint } from './city.js';
+
+export const MISSION_TYPES = ['delivery', 'getaway', 'cashrun'];
+
+const NAMES = {
+  delivery: 'Parcel Delivery',
+  getaway: 'Getaway',
+  cashrun: 'Cash Run',
 };
 
-const REWARDS = { delivery: [150, 300], getaway: [350, 500], collect: [200, 300] };
+export function createMissionManager() {
+  return { active: null, nextIndex: 0, completed: 0 };
+}
 
-export class MissionManager {
-  constructor(city, rng) {
-    this.city = city;
-    this.rng = rng;
-    this.current = null;   // {type, title, blurb, target, targetLabel, timeLeft, progress, goal, reward, phase, bags?}
-    this.completed = 0;
-    this.nextTypeIndex = 0;
-    this.cooldown = 0;     // seconds before a new mission can be taken
-    this.toast = '';       // short message the HUD shows
-    this.toastTime = 0;
+function farRoadPoint(city, rng, from, minDist, maxDist) {
+  for (let tries = 0; tries < 24; tries++) {
+    const spot = randomRoadPoint(city, rng);
+    const d = distance(spot.x, spot.y, from.x, from.y);
+    if (d >= minDist && d <= maxDist) return { point: spot, distance: d };
+  }
+  const spot = randomRoadPoint(city, rng);
+  return { point: spot, distance: distance(spot.x, spot.y, from.x, from.y) };
+}
+
+export function startMission(manager, type, world) {
+  const { city, rng, player } = world;
+  let mission = null;
+
+  if (type === 'delivery') {
+    const { point, distance: d } = farRoadPoint(city, rng, player, 600, 1400);
+    mission = {
+      type,
+      name: NAMES[type],
+      objective: 'Drive the parcel to the gold marker',
+      target: point,
+      timer: d / 200 + 25,
+      duration: d / 200 + 25,
+      reward: Math.round(CONFIG.missionRewardBase + d * CONFIG.missionRewardPerPixel),
+      pickups: [],
+      collected: 0,
+      stage: 'deliver',
+      layLow: 0,
+    };
+  } else if (type === 'getaway') {
+    const { point } = farRoadPoint(city, rng, player, 650, 1100);
+    mission = {
+      type,
+      name: NAMES[type],
+      objective: 'Reach the safe house and shake the police',
+      target: point,
+      timer: 80,
+      duration: 80,
+      reward: 220,
+      pickups: [],
+      collected: 0,
+      stage: 'reach',
+      layLow: 0,
+    };
+  } else {
+    // Cash Run: five bundles around a district, then a drop-off.
+    const { point: centre } = farRoadPoint(city, rng, player, 300, 700);
+    const pickups = [];
+    for (let i = 0; i < CONFIG.missionCashRunPickups; i++) {
+      pickups.push({
+        x: centre.x + rng.range(-320, 320),
+        y: centre.y + rng.range(-320, 320),
+        value: 25,
+        taken: false,
+        bob: rng.range(0, Math.PI * 2),
+      });
+    }
+    const { point: drop } = farRoadPoint(city, rng, centre, 500, 1000);
+    mission = {
+      type,
+      name: NAMES[type],
+      objective: `Collect ${CONFIG.missionCashRunPickups} cash bundles`,
+      target: centre,
+      dropoff: drop,
+      timer: 120,
+      duration: 120,
+      reward: CONFIG.missionCashRunBonus,
+      pickups,
+      collected: 0,
+      stage: 'collect',
+      layLow: 0,
+    };
   }
 
-  get active() { return this.current !== null; }
+  manager.active = mission;
+  return mission;
+}
 
-  say(text, seconds = 4) {
-    this.toast = text;
-    this.toastTime = seconds;
+// Advance the active mission one frame. Returns an event for main.js:
+// { event: 'completed', reward } or { event: 'failed', reason } or null.
+export function updateMission(manager, dt, world) {
+  const mission = manager.active;
+  if (!mission) return null;
+  const { player, police } = world;
+
+  mission.timer -= dt;
+  if (mission.timer <= 0) {
+    manager.active = null;
+    return { event: 'failed', reason: 'Time ran out' };
   }
 
-  /** Mara calls: hand out the next mission in the rotation. */
-  startNext(playerX, playerY) {
-    if (this.current || this.cooldown > 0) return false;
-    const types = ['delivery', 'getaway', 'collect'];
-    const type = types[this.nextTypeIndex % types.length];
-    this.nextTypeIndex++;
-    const reward = rangeInt(this.rng, REWARDS[type][0], REWARDS[type][1]);
-    const def = MISSION_DEFS[type];
-    if (type === 'delivery') {
-      const spot = this.city.randomLandmark('marasBar');
-      this.current = {
-        type, title: def.title, blurb: def.blurb,
-        target: { x: spot.x, y: spot.y }, targetLabel: spot.label,
-        timeLeft: 75, progress: 0, goal: 1, reward, phase: 'drive',
-      };
-    } else if (type === 'getaway') {
-      const pickup = this.city.randomRoadPoint(playerX, playerY, 600);
-      this.current = {
-        type, title: def.title, blurb: def.blurb,
-        target: pickup, targetLabel: 'Crew pickup',
-        timeLeft: 0, progress: 0, goal: 2, reward, phase: 'pickup',
-      };
+  if (mission.type === 'delivery') {
+    if (distance(player.x, player.y, mission.target.x, mission.target.y) < 46) {
+      manager.active = null;
+      manager.completed += 1;
+      return { event: 'completed', reward: mission.reward };
+    }
+  } else if (mission.type === 'getaway') {
+    if (mission.stage === 'reach') {
+      if (distance(player.x, player.y, mission.target.x, mission.target.y) < 52) {
+        mission.stage = 'laylow';
+        mission.layLow = 4;
+        mission.objective = 'Lay low — keep the police away';
+      }
     } else {
-      const bags = [];
-      for (let i = 0; i < 5; i++) {
-        bags.push(this.city.randomRoadPoint(playerX, playerY, 350));
-      }
-      this.current = {
-        type, title: def.title, blurb: def.blurb,
-        target: bags[0], targetLabel: 'Cash bag',
-        timeLeft: 120, progress: 0, goal: 5, reward, phase: 'collect',
-        bags,
-      };
-    }
-    this.say(`Mara: ${def.title} — ${def.blurb}`, 5);
-    return true;
-  }
-
-  /** Called every frame; returns 'done' | 'failed' | null. */
-  update(dt, game) {
-    if (this.toastTime > 0) this.toastTime -= dt;
-    if (this.cooldown > 0) this.cooldown -= dt;
-    const m = this.current;
-    if (!m) return null;
-    if (m.timeLeft > 0) {
-      m.timeLeft -= dt;
-      if (m.timeLeft <= 0) return this._fail(game, 'Out of time.');
-    }
-    const px = game.player.x;
-    const py = game.player.y;
-    const near = Math.hypot(px - m.target.x, py - m.target.y) < 70;
-    if (m.type === 'delivery') {
-      if (near) return this._complete(game);
-    } else if (m.type === 'getaway') {
-      if (m.phase === 'pickup') {
-        if (near) {
-          m.phase = 'escape';
-          m.target = { x: this.city.landmarks.safehouse.x, y: this.city.landmarks.safehouse.y };
-          m.targetLabel = 'Safehouse';
-          m.progress = 1;
-          this.say('Crew is in! Lose the cops and reach the Safehouse.', 4);
-          game.addWanted(2);
+      const nearest = nearestPoliceDistance(police, player);
+      if (nearest < 300) {
+        mission.layLow = 4;
+      } else {
+        mission.layLow -= dt;
+        if (mission.layLow <= 0) {
+          manager.active = null;
+          manager.completed += 1;
+          return { event: 'completed', reward: mission.reward };
         }
-      } else if (near && game.wanted === 0) {
-        return this._complete(game);
-      }
-    } else if (m.type === 'collect') {
-      if (near) {
-        m.progress++;
-        game.money += 40;
-        game.audio.pickup();
-        this.say(`Cash bag ${m.progress}/5 grabbed (+$40).`, 2);
-        if (m.progress >= m.goal) return this._complete(game);
-        m.target = m.bags[m.progress];
       }
     }
-    return null;
+  } else if (mission.type === 'cashrun') {
+    if (mission.stage === 'collect') {
+      for (const pickup of mission.pickups) {
+        if (!pickup.taken && distance(player.x, player.y, pickup.x, pickup.y) < 30) {
+          pickup.taken = true;
+          mission.collected += 1;
+          player.money += pickup.value;
+        }
+      }
+      if (mission.collected >= mission.pickups.length) {
+        mission.stage = 'deliver';
+        mission.target = mission.dropoff;
+        mission.objective = 'Deliver the cash to the drop-off';
+      }
+    } else if (distance(player.x, player.y, mission.target.x, mission.target.y) < 46) {
+      manager.active = null;
+      manager.completed += 1;
+      return { event: 'completed', reward: mission.reward };
+    }
   }
 
-  _complete(game) {
-    const m = this.current;
-    game.money += m.reward;
-    game.audio.missionDone();
-    this.completed++;
-    this.say(`Mission complete: ${m.title} — +$${m.reward}!`, 5);
-    this.current = null;
-    this.cooldown = 3;
-    return 'done';
-  }
+  return null;
+}
 
-  _fail(game, why) {
-    const m = this.current;
-    this.say(`Mission failed: ${m.title} — ${why}`, 5);
-    this.current = null;
-    this.cooldown = 5;
-    return 'failed';
+function nearestPoliceDistance(police, player) {
+  let best = Infinity;
+  for (const car of police) {
+    best = Math.min(best, distance(car.x, car.y, player.x, player.y));
   }
-
-  abandon() {
-    if (!this.current) return;
-    this.say(`Mission abandoned: ${this.current.title}.`, 4);
-    this.current = null;
-    this.cooldown = 5;
-  }
+  return best;
 }

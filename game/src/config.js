@@ -1,61 +1,98 @@
-// Sunset Shores — every tunable number in one place.
-// One job only: hold the constants the rest of the game balances on, so
-// tuning never means digging through the logic files.
+// Sunset Shores — every tunable number for Palm Bay lives here.
+// One place to balance the game: world shape, speeds, money, police.
 
-// World size (pixels). Palm Bay is a 3200 x 2400 coastal city.
-export const WORLD_W = 3200;
-export const WORLD_H = 2400;
+export const CONFIG = {
+  // The city of Palm Bay.
+  worldWidth: 3200,
+  worldHeight: 2400,
+  seed: 7,
 
-// Road grid.
-export const ROAD_W = 96;     // width of every avenue and street
-export const BLOCK = 400;     // distance between road centre lines
-export const ROAD_COLOR = '#3a3f4a';
-export const ROAD_EDGE = '#2c3038';
-export const SIDEWALK_COLOR = '#b9b3a4';
-export const GROUND_COLOR = '#7fae62';  // grass
-export const SAND_COLOR = '#e8d39a';    // beach
-export const WATER_COLOR = '#2f7fb8';   // sea
+  // Road grid: roads run at these intervals, their centres on the offset.
+  roadSpacing: 400,
+  roadOffset: 200,
+  roadHalfWidth: 40,
 
-// The player on foot.
-export const WALK_SPEED = 230;
-export const PLAYER_RADIUS = 14;
-export const PLAYER_MAX_HEALTH = 100;
+  // The beach on the east edge: sand, then water the player cannot enter.
+  sandStartX: 2960,
+  waterStartX: 3120,
 
-// Cars.
-export const CAR_LENGTH = 52;
-export const CAR_WIDTH = 26;
-export const CAR_ACCEL = 420;
-export const CAR_BRAKE = 700;
-export const CAR_MAX_SPEED = 560;
-export const CAR_MAX_REVERSE = 180;
-export const CAR_TURN = 2.6;  // radians per second at full lock
+  // The player on foot.
+  playerRadius: 13,
+  walkSpeed: 175,
+  playerHealth: 100,
+  startMoney: 250,
+  stealDistance: 52,
+  carTouchDamage: 12,
 
-// Wanted level and police.
-export const MAX_WANTED = 5;
-export const WANTED_DECAY_SECONDS = 45; // clean seconds before a star drops
-export const BUST_FINE = 150;           // money lost when busted
+  // Driving.
+  carAccel: 300,
+  carBrake: 520,
+  carReverseTop: 130,
+  carTopSpeed: 430,
+  carTurnRate: 2.9,
+  carLength: 34,
+  carWidth: 18,
 
-// Money.
-export const START_MONEY = 250;
-export const CASH_PICKUP_VALUE = 25;
+  // Traffic.
+  trafficCount: 16,
+  trafficSpeedMin: 85,
+  trafficSpeedMax: 150,
+  parkedCount: 10,
 
-// Mission types, in rotation order.
-export const MISSION_TYPES = ['delivery', 'getaway', 'collect'];
+  // Pedestrians.
+  pedestrianCount: 22,
+  pedestrianSpeedMin: 42,
+  pedestrianSpeedMax: 68,
+  pedestrianFleeSpeed: 150,
 
-// View size (the canvas is 1280 x 720).
-export const VIEW_W = 1280;
-export const VIEW_H = 720;
+  // Police and the wanted system.
+  policeMax: 5,
+  policeBaseSpeed: 300,
+  policeSpeedPerStar: 26,
+  wantedDecayQuietSeconds: 25,
+  wantedDecayEverySeconds: 20,
+  bustDistance: 30,
 
-// Flat-colour palettes. All art is original and drawn in code.
-export const BUILDING_COLORS = [
-  '#d98a6a', '#e0b25f', '#8fa8c8', '#b7c4a8', '#c98ba0',
-  '#9a8fc0', '#7fb8a4', '#d9c08a', '#a8a0a0', '#e08a5f',
-];
-export const CAR_COLORS = [
-  '#d23c3c', '#2f6fd0', '#e8c33c', '#3ca66a', '#8a5fd0',
-  '#e8e8e8', '#222831', '#e07b2f', '#3fb8b0', '#c94f7c',
-];
-export const PED_SHIRT_COLORS = [
-  '#e05a5a', '#4a7fd0', '#e8b23c', '#4aa86a', '#9a6fd0',
-  '#e8e8e8', '#333a44', '#e08a3c', '#4ab8b0', '#d06a9c',
-];
+  // Cash lying around the world.
+  worldCashCount: 8,
+  worldCashValue: 30,
+  worldCashRespawnSeconds: 45,
+
+  // Missions.
+  missionRewardBase: 100,
+  missionRewardPerPixel: 0.15,
+  missionCashRunBonus: 150,
+  missionCashRunPickups: 5,
+
+  // Colours of the sun-soaked city.
+  colors: {
+    grass: '#7fae5e',
+    grassDark: '#74a355',
+    sand: '#e8d49a',
+    water: '#3f8fbf',
+    waterDeep: '#2f6f9e',
+    asphalt: '#3d414c',
+    asphaltEdge: '#333743',
+    roadLine: '#e8d44d',
+    sidewalk: '#c2b294',
+    buildingRoof: '#8a6f5c',
+    tree: '#3f7d3a',
+    treeDark: '#356b31',
+    hudPanel: 'rgba(12, 12, 20, 0.62)',
+    hudText: '#ffffff',
+    hudGold: '#ffd94d',
+    minimapBack: 'rgba(10, 14, 24, 0.72)',
+  },
+
+  // Building paint, picked per building from the seed.
+  buildingColors: [
+    '#e8b04b', '#d97b4f', '#e07856', '#7fb3a3', '#e8dcc0',
+    '#c96f6f', '#8fa8c8', '#d9a05b', '#a8b878', '#c98bb0',
+  ],
+
+  // Traffic paint.
+  carColors: [
+    '#c0392b', '#2980b9', '#f1c40f', '#ecf0f1', '#2c3e50',
+    '#e67e22', '#16a085', '#8e44ad', '#7f8c8d', '#d35400',
+  ],
+};

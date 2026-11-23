@@ -1,127 +1,84 @@
-// Sunset Shores — staged scenes for screenshots (?shot=...).
-// One job only: put the game into a fixed, lively state for each screenshot
-// name, using the real rules and the real renderer, then let main.js paint it
-// twice and set window.__shotReady. Nothing here is a mock: the cover shows
-// the title screen, the others show live play.
-import { AVENUES, STREETS } from './city.js';
-import { Car, clamp } from './entities.js';
+// Screenshot scenes: when the page opens with ?scene=<name>, drive the
+// game into that exact scene so screenshots are reproducible.
 
-function putPlayerInCar(game, x, y, angle, color) {
-  const car = new Car(x, y, angle, 'player', game.rng);
-  car.color = color;
-  car.speed = 240;
-  game.player.car = car;
-  game.player.x = x;
-  game.player.y = y;
-  game.player.angle = angle;
-  game.cam.x = x;
-  game.cam.y = y;
-  return car;
+import { startMission } from './missions.js';
+import { createPoliceCar } from './entities.js';
+
+function trafficCarAt(x, y, angle, speed, color) {
+  const axis = Math.abs(Math.cos(angle)) > 0.5 ? 'h' : 'v';
+  const road = axis === 'h' ? y : x;
+  const dir = axis === 'h'
+    ? (Math.cos(angle) >= 0 ? 1 : -1)
+    : (Math.sin(angle) >= 0 ? 1 : -1);
+  return {
+    kind: 'traffic',
+    x, y, angle, speed, color,
+    axis, road, dir,
+    lane: 14,
+    cruise: speed,
+    turnCooldown: 5,
+    length: 34,
+    width: 18,
+  };
 }
 
-function scatterTraffic(game, cx, cy, count) {
-  for (let i = 0; i < count; i++) {
-    const vertical = game.rng() < 0.5;
-    let x; let y; let angle;
-    if (vertical) {
-      x = AVENUES[2 + Math.floor(game.rng() * 4)];
-      y = cy + (game.rng() - 0.5) * 700;
-      angle = game.rng() < 0.5 ? Math.PI / 2 : -Math.PI / 2;
-    } else {
-      x = cx + (game.rng() - 0.5) * 800;
-      y = STREETS[1 + Math.floor(game.rng() * 3)];
-      angle = game.rng() < 0.5 ? 0 : Math.PI;
-    }
-    const car = new Car(
-      clamp(x, 100, 3100), clamp(y, 100, 2300), angle, 'traffic', game.rng,
-    );
-    car.speed = 130 + game.rng() * 90;
-    car.ai = { dir: angle, cruise: car.speed };
-    game.traffic.push(car);
-  }
-}
+export function setupScene(game, name) {
+  if (name === 'title') return;
+  const { player } = game;
+  game.state = 'playing';
 
-export function stageShot(game, name) {
-  const bar = game.city.landmarks.marasBar;
-  if (name === 'start') {
-    // Title screen over a living street outside Mara's Bar.
-    game.state = 'title';
-    game.player.x = bar.x + 60;
-    game.player.y = bar.y + 40;
-    game.cam.x = game.player.x;
-    game.cam.y = game.player.y;
-    game.money = 1250;
-    game.missions.completed = 3;
-    return;
-  }
-
-  if (name === 'play') {
-    // Cruising down an avenue in a stolen sedan, traffic and pedestrians around.
-    game.state = 'playing';
-    game.money = 1240;
-    game.wanted = 0;
-    const x = AVENUES[3];
-    const y = STREETS[2];
-    putPlayerInCar(game, x, y, 0, '#d23c3c');
-    game.player.car.speed = 260;
-    scatterTraffic(game, x, y, 6);
-    game.missions.say('Press M — Mara has work for you.', 5);
+  if (name === 'drive') {
+    game.giveCar(1000, 600, 0);
+    player.inCar.speed = 210;
+    // Clear random traffic from the player's lane so the shot reads.
+    game.traffic = game.traffic.filter((c) => Math.hypot(c.x - player.x, c.y - player.y) > 350);
+    game.traffic.push(trafficCarAt(1260, 614, 0, 110, '#2980b9'));
+    game.traffic.push(trafficCarAt(700, 586, Math.PI, 120, '#c0392b'));
+    game.traffic.push(trafficCarAt(1000, 1400, Math.PI / 2, 100, '#f1c40f'));
+    game.peds.push({ x: 1120, y: 656, angle: 0, speed: 55, state: 'walk', downTimer: 0, fleeTimer: 0, fleeAngle: 0, radius: 10 });
+    game.message = 'Cruising Palm Bay — press E to leave the car';
+    game.messageTimer = 6;
     return;
   }
 
   if (name === 'chase') {
-    // Three stars: Palm Bay PD in pursuit, sirens flashing, player fleeing.
-    game.state = 'playing';
-    game.money = 860;
-    game.wanted = 3;
-    const x = AVENUES[4];
-    const y = STREETS[3];
-    const car = putPlayerInCar(game, x, y, 0, '#2f6fd0');
-    car.speed = 420;
-    for (let i = 0; i < 3; i++) {
-      const pc = new Car(
-        x - 260 - i * 130, y + (i - 1) * 70,
-        0, 'police', game.rng,
-      );
-      pc.speed = 380 + i * 20;
-      pc.sirenPhase = i * 2.1;
-      game.police.push(pc);
-    }
-    scatterTraffic(game, x, y, 4);
-    game.missions.say('Lose the cops!', 5);
+    game.giveCar(1400, 1250, -Math.PI / 2);
+    player.inCar.speed = 320;
+    game.traffic = game.traffic.filter((c) => Math.hypot(c.x - player.x, c.y - player.y) > 350);
+    player.wanted = 2;
+    player.lastCrimeAt = game.time;
+    const cop1 = createPoliceCar(game.city, 1400, 1720);
+    cop1.angle = -Math.PI / 2;
+    cop1.speed = 300;
+    const cop2 = createPoliceCar(game.city, 1452, 1660);
+    cop2.angle = -Math.PI / 2;
+    cop2.speed = 290;
+    game.police.push(cop1, cop2);
+    game.traffic.push(trafficCarAt(1800, 1000, 0, 120, '#ecf0f1'));
+    game.traffic.push(trafficCarAt(1000, 1000, 0, 100, '#e67e22'));
+    game.message = 'Wanted level 2 — lose the police!';
+    game.messageTimer = 6;
     return;
   }
 
   if (name === 'mission') {
-    // A delivery job in progress: Mara's package, the drop-off beacon and the
-    // dashed route line, one star of heat trailing the player.
-    game.state = 'playing';
-    game.money = 1480;
-    game.wanted = 1;
-    const x = AVENUES[2];
-    const y = STREETS[2];
-    const car = putPlayerInCar(game, x, y, Math.PI / 2, '#e8c33c');
-    car.speed = 300;
-    const drop = game.city.landmarks.diner;
-    game.missions.current = {
-      type: 'delivery',
-      title: 'Hot Delivery',
-      blurb: 'Drive the package to the drop-off before the timer runs out.',
-      target: { x: drop.x, y: drop.y },
-      targetLabel: 'Sunset Diner',
-      timeLeft: 58,
-      progress: 0,
-      goal: 1,
-      reward: 240,
-      phase: 'drive',
-    };
-    const pc = new Car(x - 320, y + 90, 0, 'police', game.rng);
-    pc.speed = 330;
-    game.police.push(pc);
-    scatterTraffic(game, x, y, 4);
-    return;
+    game.giveCar(1000, 1000, 0);
+    player.inCar.speed = 180;
+    game.traffic = game.traffic.filter((c) => Math.hypot(c.x - player.x, c.y - player.y) > 350);
+    const mission = startMission(game.missionManager, 'delivery', {
+      city: game.city,
+      rng: game.rng,
+      player,
+    });
+    // A fixed destination straight ahead, so the marker reads clearly.
+    mission.target = { x: 1800, y: 1000 };
+    mission.timer = 60;
+    mission.duration = 60;
+    mission.reward = 250;
+    game.traffic.push(trafficCarAt(1300, 1014, 0, 100, '#16a085'));
+    game.traffic.push(trafficCarAt(1600, 986, Math.PI, 110, '#8e44ad'));
+    game.peds.push({ x: 1150, y: 1056, angle: Math.PI, speed: 50, state: 'walk', downTimer: 0, fleeTimer: 0, fleeAngle: 0, radius: 10 });
+    game.message = 'Parcel Delivery — reach the gold marker';
+    game.messageTimer = 6;
   }
-
-  // Unknown shot name: fall back to the title screen.
-  game.state = 'title';
 }

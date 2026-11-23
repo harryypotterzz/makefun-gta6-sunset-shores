@@ -1,116 +1,185 @@
 #!/usr/bin/env python3
-"""Live playtest of the rebuilt Sunset Shores: start, walk, steal a car,
-drive, take a mission, and report the game state after each step.
-Serves game/ with Python's http.server and drives it with Playwright.
-Usage: python playtest.py [port]
+"""Full play session for Sunset Shores in a headless browser.
+
+Drives the game with a fixed seed through its whole loop and asserts
+there are zero console errors and zero page errors:
+  title -> ENTER -> walk -> steal a car with E -> drive
+  -> M starts a mission -> complete it -> steal a second car
+  -> wanted rises -> police spawn -> pause and resume.
+Prints PASS/FAIL and exits non-zero on failure.
+
+Usage: /home/hatch/workspace/makefun/.pwvenv/bin/python playtest.py
 """
+
 import os
 import subprocess
 import sys
 import time
+import urllib.request
 
-ENTRY = os.path.expanduser("~/workspace/makefun/entries/gta6")
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8902
-GAME_DIR = os.path.join(ENTRY, "game")
+HERE = os.path.dirname(os.path.abspath(__file__))
+PORT = 8903
+URL = f"http://localhost:{PORT}/game/index.html"
 
-from playwright.sync_api import sync_playwright
+CHECKS = []
 
-server = subprocess.Popen(
-    [sys.executable, "-m", "http.server", str(PORT), "--bind", "127.0.0.1"],
-    cwd=GAME_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-)
-time.sleep(1.5)
 
-errors = []
-try:
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 720})
-        page.on("console", lambda msg: errors.append(f"{msg.type}: {msg.text}") if msg.type == "error" else None)
-        page.on("pageerror", lambda exc: errors.append(f"pageerror: {exc}"))
-        page.goto(f"http://127.0.0.1:{PORT}/?seed=7")
-        page.wait_for_timeout(800)
+def check(name, ok, detail=""):
+    CHECKS.append((name, bool(ok), detail))
+    print(("PASS " if ok else "FAIL ") + name + (f" — {detail}" if detail else ""))
+    return ok
 
-        def state():
-            return page.evaluate("""() => {
-              const g = window.__game;
-              if (!g) return 'no game';
-              return JSON.stringify({
-                state: g.state, money: g.money, wanted: g.wanted,
-                health: Math.round(g.player.health),
-                px: Math.round(g.player.x), py: Math.round(g.player.y),
-                inCar: !!g.player.car, speed: g.player.car ? Math.round(g.player.car.speed) : 0,
-                traffic: g.traffic.length, parked: g.parked.length,
-                police: g.police.length, peds: g.peds.length,
-                mission: g.missions.current ? g.missions.current.type : null,
-                missionsDone: g.missions.completed,
-              });
-            }""")
 
-        print("initial:", state())
-        page.keyboard.press("Enter")
-        page.wait_for_timeout(500)
-        print("after ENTER:", state())
-        # Walk up-left for a bit.
-        page.keyboard.down("KeyW")
-        page.keyboard.down("KeyA")
-        page.wait_for_timeout(1200)
-        page.keyboard.up("KeyW")
-        page.keyboard.up("KeyA")
-        print("after walking:", state())
-        # Teleport next to a parked car and steal it (E).
-        page.evaluate("""() => {
-          const g = window.__game;
-          const car = g.parked[0] || g.traffic[0];
-          g.player.x = car.x + 20; g.player.y = car.y;
-          g.cam.x = car.x; g.cam.y = car.y;
-        }""")
-        page.keyboard.press("KeyE")
-        page.wait_for_timeout(400)
-        print("after E (steal):", state())
-        # Drive forward.
-        page.keyboard.down("KeyW")
-        page.wait_for_timeout(2500)
-        page.keyboard.up("KeyW")
-        print("after driving:", state())
-        # Take a mission.
-        page.keyboard.press("KeyM")
-        page.wait_for_timeout(400)
-        print("after M (mission):", state())
-        # Drive toward the mission target for a while.
-        page.evaluate("""() => {
-          const g = window.__game;
-          const m = g.missions.current;
-          if (m) { g.player.car.x = m.target.x - 200; g.player.car.y = m.target.y; g.player.x = g.player.car.x; g.player.y = g.player.car.y; }
-        }""")
-        page.keyboard.down("KeyW")
-        page.wait_for_timeout(1500)
-        page.keyboard.up("KeyW")
-        print("near target:", state())
-        # Force a wanted level and check police spawn.
-        page.evaluate("() => { window.__game.addWanted(2); }")
-        page.wait_for_timeout(3500)
-        print("wanted 2, police should spawn:", state())
-        # Pause / resume.
-        page.keyboard.press("KeyP")
-        page.wait_for_timeout(300)
-        print("paused:", state())
-        page.keyboard.press("KeyP")
-        page.wait_for_timeout(300)
-        print("resumed:", state())
-        # Live screenshot (not staged).
-        live = os.path.join(ENTRY, "qa-live.jpg")
-        page.screenshot(path=live, type="jpeg", quality=85)
-        print("live screenshot saved, size:", os.path.getsize(live))
-        browser.close()
-finally:
-    server.terminate()
+def wait_for_server(timeout=20):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(URL, timeout=2) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+
+def main():
+    from playwright.sync_api import sync_playwright
+
+    server = subprocess.Popen(
+        ["node", "serve.ts", str(PORT)],
+        cwd=HERE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    failures = 0
     try:
-        server.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        server.kill()
+        if not wait_for_server():
+            print("FAIL: dev server did not come up")
+            return 1
 
-print("--- errors ---")
-for e in errors:
-    print(e)
-print("--- done ---")
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+            page.on("console", lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+
+            page.goto(URL)
+            page.wait_for_timeout(900)
+
+            state = page.evaluate("window.__sunset.state()")
+            if not check("title screen shows on load", state == "title", f"state={state}"):
+                failures += 1
+
+            # Start the game.
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(400)
+            state = page.evaluate("window.__sunset.state()")
+            if not check("ENTER starts the game", state == "playing", f"state={state}"):
+                failures += 1
+
+            # Walk: hold Up and confirm the player moved.
+            before = page.evaluate("window.__sunset.player()")
+            page.keyboard.down("ArrowUp")
+            page.wait_for_timeout(700)
+            page.keyboard.up("ArrowUp")
+            after = page.evaluate("window.__sunset.player()")
+            moved = abs(after["y"] - before["y"]) + abs(after["x"] - before["x"])
+            if not check("walking moves the player", moved > 30, f"moved {moved:.0f}px"):
+                failures += 1
+
+            # Steal a car: put a parked car beside the player, press E.
+            page.evaluate("window.__sunset.debug.spawnParkedNear(30, 0)")
+            page.wait_for_timeout(150)
+            page.keyboard.press("KeyE")
+            page.wait_for_timeout(300)
+            player = page.evaluate("window.__sunset.player()")
+            if not check("E steals a car", player["inCar"], f"inCar={player['inCar']}"):
+                failures += 1
+            if not check("stealing raises wanted to 1", player["wanted"] >= 1, f"wanted={player['wanted']}"):
+                failures += 1
+
+            # Drive: hold Up and confirm speed and movement.
+            before = page.evaluate("window.__sunset.player()")
+            page.keyboard.down("ArrowUp")
+            page.wait_for_timeout(1500)
+            page.keyboard.up("ArrowUp")
+            after = page.evaluate("window.__sunset.player()")
+            if not check("driving builds speed", after["speed"] > 50, f"speed={after['speed']}"):
+                failures += 1
+            drove = abs(after["y"] - before["y"]) + abs(after["x"] - before["x"])
+            if not check("driving moves the car", drove > 100, f"moved {drove:.0f}px"):
+                failures += 1
+
+            # Mission: M starts one, teleport to its target, it completes.
+            money_before = page.evaluate("window.__sunset.player()")["money"]
+            page.keyboard.press("KeyM")
+            page.wait_for_timeout(300)
+            mission = page.evaluate("window.__sunset.mission()")
+            if not check("M starts a mission", mission is not None, f"mission={mission}"):
+                failures += 1
+            else:
+                page.evaluate("window.__sunset.debug.teleportToMissionTarget()")
+                page.wait_for_timeout(900)
+                done = page.evaluate("window.__sunset.missionsDone()")
+                money_after = page.evaluate("window.__sunset.player()")["money"]
+                if not check("mission completes at its target", done >= 1, f"missionsDone={done}"):
+                    failures += 1
+                if not check("mission pays money", money_after > money_before,
+                             f"${money_before} -> ${money_after}"):
+                    failures += 1
+
+            # Second steal: exit, steal another car, wanted rises to 2.
+            page.keyboard.press("KeyE")
+            page.wait_for_timeout(200)
+            page.evaluate("window.__sunset.debug.spawnParkedNear(30, 0)")
+            page.wait_for_timeout(150)
+            page.keyboard.press("KeyE")
+            page.wait_for_timeout(300)
+            player = page.evaluate("window.__sunset.player()")
+            if not check("second steal raises wanted to 2", player["wanted"] >= 2,
+                         f"wanted={player['wanted']}"):
+                failures += 1
+
+            # Police: wanted 2 must bring two cruisers within a few seconds.
+            page.wait_for_timeout(3000)
+            cops = page.evaluate("window.__sunset.policeCount()")
+            if not check("police spawn at wanted 2", cops >= 2, f"police={cops}"):
+                failures += 1
+
+            # Pause and resume.
+            page.keyboard.press("KeyP")
+            page.wait_for_timeout(300)
+            state = page.evaluate("window.__sunset.state()")
+            if not check("P pauses the game", state == "paused", f"state={state}"):
+                failures += 1
+            page.keyboard.press("KeyP")
+            page.wait_for_timeout(300)
+            state = page.evaluate("window.__sunset.state()")
+            if not check("P resumes the game", state == "playing", f"state={state}"):
+                failures += 1
+
+            # Zero console errors across the whole session.
+            if not check("zero console/page errors", len(errors) == 0, f"{len(errors)} errors"):
+                failures += 1
+                for e in errors[:8]:
+                    print("   ", e)
+
+            browser.close()
+
+        print()
+        if failures == 0:
+            print(f"PLAYTEST PASS ({len(CHECKS)} checks)")
+            return 0
+        print(f"PLAYTEST FAIL ({failures} of {len(CHECKS)} checks failed)")
+        return 1
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
