@@ -6,7 +6,7 @@
 // Run it locally as:  mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 // The grader runs it with /output as the output directory.
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -25,8 +25,14 @@ if (!existsSync(screenshotsDir)) {
   process.exit(1);
 }
 
-rmSync(outputDir, { recursive: true, force: true });
+// Clear the output directory's contents without removing the directory
+// itself: in the grader /output is a volume the entry's user cannot delete
+// (its parent is not writable by that user, and it is a mount point), so
+// removing it crashes the program with exit code 1.
 mkdirSync(outputDir, { recursive: true });
+for (const entry of readdirSync(outputDir)) {
+  rmSync(join(outputDir, entry), { recursive: true, force: true });
+}
 cpSync(gameDir, join(outputDir, 'game'), { recursive: true });
 cpSync(screenshotsDir, join(outputDir, 'screenshots'), { recursive: true });
 
